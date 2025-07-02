@@ -40,25 +40,32 @@ def build_transformer_model(input_dim, num_classes=1):
     x = layers.Flatten()(x)
     x = layers.Dense(64, activation='relu')(inputs+x)
     x = layers.Dropout(0.2)(x)
-    outputs = layers.Dense(1, activation='sigmoid')(x)  # binary classification
+    logits = layers.Dense(1)(x)  # no activation here
+    outputs = layers.Activation('sigmoid')(logits)
+    # outputs = layers.Dense(1, activation='sigmoid')(x)  # binary classification
 
     model = models.Model(inputs=inputs, outputs=outputs)
+    logit_model = models.Model(inputs=inputs, outputs=logits)
     adam = keras.optimizers.Adam(learning_rate=0.01, clipnorm=0.1)
     model.compile(optimizer=adam, loss='binary_crossentropy', metrics=['accuracy'],)
-    return model
+    return model, logit_model
 def build_logit_model(input_dim, num_classes=1):
     """This function implements a logistic regression in the keras framework."""
     inputs = layers.Input(shape=(input_dim,))
-    outputs = layers.Dense(1, activation='sigmoid')(inputs)  # binary classification
+    logits = layers.Dense(1)(inputs)  # no activation here
+    outputs = layers.Activation('sigmoid')(logits)
+    # outputs = layers.Dense(1, activation='sigmoid')(inputs)  # binary classification
 
     model = models.Model(inputs=inputs, outputs=outputs)
+    logit_model = models.Model(inputs=inputs, outputs=logits)
     adam = keras.optimizers.Adam(learning_rate=0.01, clipnorm=0.1)
     model.compile(optimizer=adam, loss='binary_crossentropy', metrics=['accuracy'],)
-    return model
+    return model, logit_model
+
 
 # Build the model
-model = build_transformer_model(input_dim=X_train.shape[1])
-model2 = build_logit_model(input_dim=X_train.shape[1])
+model, logit_model = build_transformer_model(input_dim=X_train.shape[1])
+model2, logit_model2 = build_logit_model(input_dim=X_train.shape[1])
 print(np.mean(y))
 input('press enter to start training...')
 
@@ -93,3 +100,37 @@ print(f"logit ROC AUC: {logit_roc:.4f}")
 print(classification_report(y_test, model.predict(X_test)>0.5))
 print(classification_report(y_test, model2.predict(X_test)>0.5))
 #print(model.predict(X_test))
+
+
+# The nice thing about neural networks is that we can capture the gradient with respect to input
+# directly from the model with the gradient tape class from tensorflow. This means that
+# you can have a direct measurement of how the model is going to behave.
+
+# You can see from this example that the model correctly recovers the direction and
+# relative scale of the "true" coefficient vector.
+def get_input_gradients(model, inputs):
+    # Ensure inputs is a tensor with gradient tracking enabled
+    inputs = tf.convert_to_tensor(inputs)
+    inputs = tf.cast(inputs, tf.float32)
+    inputs = tf.Variable(inputs)  # make it a variable to track gradients
+
+    with tf.GradientTape() as tape:
+        tape.watch(inputs)
+        outputs = model(inputs)
+
+    # Compute gradient of output w.r.t. inputs
+    grads = tape.gradient(outputs, inputs)
+    return grads
+
+
+# Example usage:
+import numpy as np
+
+x = X_test[0,:].reshape(-1,8)  # example input (batch size 1)
+gradients = get_input_gradients(logit_model, x)
+print('Transformer Gradient')
+print(gradients.numpy())
+gradients = get_input_gradients(logit_model2, x)
+print('========================')
+print('Logit Gradient')
+print(gradients.numpy())
